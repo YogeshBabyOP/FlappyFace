@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Flappy Bird Clone - Custom Large Bird & Clear Game Window</title>
+  <style>
+    body {
+      margin: 0;
+      background: #70c5ce;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      font-family: sans-serif;
+    }
+    #gameContainer {
+      position: relative;
+      width: 100%;
+      max-width: 480px;
+    }
+    canvas {
+      background: #70c5ce;
+      border: 2px solid #333;
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    /* Container for the button at the bottom center */
+    #buttonContainer {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    /* Hide the file input element */
+    #imageInput {
+      display: none;
+    }
+    /* Message container placed outside the canvas */
+    #messageContainer {
+      margin-top: 10px;
+      color: #fff;
+      background: #333;
+      padding: 10px 20px;
+      border-radius: 5px;
+    }
+  </style>
+</head>
+<body>
+  <div id="gameContainer">
+    <canvas id="gameCanvas" width="480" height="640"></canvas>
+    <div id="buttonContainer">
+      <button id="selectImageButton">Select Image</button>
+      <!-- No start button; game will start on clicking the bird -->
+    </div>
+    <!-- Hidden file input for selecting the bird image -->
+    <input type="file" id="imageInput" accept="image/*" />
+  </div>
+  <!-- Message container placed outside the game window -->
+  <div id="messageContainer">Select Image &amp; Click on the Bird to Play</div>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const messageContainer = document.getElementById("messageContainer");
+
+    // Game state variables
+    let gameStarted = false;
+    let score = 0;
+    let finalScore = null;
+
+    // Game settings for easier gameplay and a larger, responsive window
+    const gravity = 0.15;        // Lower gravity for a gentler fall
+    const jumpStrength = 4.6;
+    const pipeGap = 180;         // Wider gap between pipes
+    const pipeWidth = 52;
+    const pipeCapHeight = 30;
+    const pipeSpeed = 1.2;       // Slower pipe movement
+
+    // Bird properties: initially positioned at the center of the canvas.
+    // Collision radius increased to better match the larger image.
+    let bird = {
+      x: canvas.width / 2,
+      y: canvas.height / 2,
+      velocity: 0,
+      radius: 20
+    };
+
+    // The bird image will be set by the user. Initially, it's null.
+    let birdImg = null;
+
+    // Array to hold pipe pairs. Each pipe object has a "scored" flag.
+    let pipes = [];
+    function initPipes() {
+      pipes = [];
+      pipes.push({
+        x: canvas.width,
+        y: Math.floor(Math.random() * (canvas.height - pipeGap)),
+        scored: false
+      });
+      pipes.push({
+        x: canvas.width + 200,
+        y: Math.floor(Math.random() * (canvas.height - pipeGap)),
+        scored: false
+      });
+    }
+    initPipes();
+
+    // Load the default images for pipes (using inline SVGs).
+    const topPipeImg = new Image();
+    topPipeImg.src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='52' height='320'><rect x='0' y='0' width='52' height='290' fill='%2300A300'/><rect x='0' y='290' width='52' height='30' fill='%23008000'/></svg>";
+
+    const bottomPipeImg = new Image();
+    bottomPipeImg.src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='52' height='320'><rect x='0' y='0' width='52' height='30' fill='%23008000'/><rect x='0' y='30' width='52' height='290' fill='%2300A300'/></svg>";
+
+    // Draw the bird using the user-supplied image.
+    // The image is drawn at 68x48 pixels (centered based on the new size).
+    function drawBird() {
+      if (birdImg && birdImg.src) {
+        ctx.drawImage(birdImg, bird.x - 34, bird.y - 24, 68, 48);
+      }
+    }
+
+    // Draw the pipes by splitting each into a cap and body.
+    function drawPipes() {
+      pipes.forEach(pipe => {
+        // --- Top Pipe ---
+        let topPipeHeight = pipe.y;
+        if (topPipeHeight > 0) {
+          if (topPipeHeight <= pipeCapHeight) {
+            ctx.drawImage(topPipeImg, 0, 290, 52, 30, pipe.x, 0, pipeWidth, topPipeHeight);
+          } else {
+            let bodyHeight = topPipeHeight - pipeCapHeight;
+            ctx.drawImage(topPipeImg, 0, 0, 52, 290, pipe.x, 0, pipeWidth, bodyHeight);
+            ctx.drawImage(topPipeImg, 0, 290, 52, 30, pipe.x, bodyHeight, pipeWidth, pipeCapHeight);
+          }
+        }
+        // --- Bottom Pipe ---
+        let bottomPipeHeight = canvas.height - (pipe.y + pipeGap);
+        if (bottomPipeHeight > 0) {
+          if (bottomPipeHeight <= pipeCapHeight) {
+            ctx.drawImage(bottomPipeImg, 0, 0, 52, 30, pipe.x, pipe.y + pipeGap, pipeWidth, bottomPipeHeight);
+          } else {
+            ctx.drawImage(bottomPipeImg, 0, 0, 52, 30, pipe.x, pipe.y + pipeGap, pipeWidth, pipeCapHeight);
+            ctx.drawImage(bottomPipeImg, 0, 30, 52, 290, pipe.x, pipe.y + pipeGap + pipeCapHeight, pipeWidth, bottomPipeHeight - pipeCapHeight);
+          }
+        }
+      });
+    }
+
+    // Update game objects if the game is running.
+    function update() {
+      if (!gameStarted) return;
+
+      // Apply gravity to the bird.
+      bird.velocity += gravity;
+      bird.y += bird.velocity;
+
+      // Collision with the top or bottom of the canvas.
+      if (bird.y + bird.radius >= canvas.height || bird.y - bird.radius <= 0) {
+        resetGame();
+      }
+
+      // Move pipes leftwards, check for collisions, and update score.
+      pipes.forEach(pipe => {
+        pipe.x -= pipeSpeed;
+
+        // Increase score when the pipe passes the bird.
+        if (!pipe.scored && (pipe.x + pipeWidth < bird.x)) {
+          score++;
+          pipe.scored = true;
+        }
+
+        // Collision detection.
+        if (
+          bird.x + bird.radius > pipe.x &&
+          bird.x - bird.radius < pipe.x + pipeWidth &&
+          (bird.y - bird.radius < pipe.y || bird.y + bird.radius > pipe.y + pipeGap)
+        ) {
+          resetGame();
+        }
+      });
+
+      // Add new pipes when the last pipe is far enough left.
+      if (pipes[pipes.length - 1].x < canvas.width - 200) {
+        pipes.push({
+          x: canvas.width,
+          y: Math.floor(Math.random() * (canvas.height - pipeGap)),
+          scored: false
+        });
+      }
+
+      // Remove pipes that have moved off screen.
+      if (pipes[0].x + pipeWidth < 0) {
+        pipes.shift();
+      }
+    }
+
+    // Render the game on the canvas.
+    function draw() {
+      ctx.fillStyle = "#70c5ce";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      drawPipes();
+      drawBird();
+
+      // Display current score in the top-left corner.
+      ctx.fillStyle = "#FFF";
+      ctx.font = "32px sans-serif";
+      ctx.textAlign = "left";
+      ctx.fillText("Score: " + score, 10, 40);
+    }
+
+    // Reset the game after a collision.
+    function resetGame() {
+      finalScore = score;
+      score = 0;
+      // Reposition the bird at the center of the canvas.
+      bird.x = canvas.width / 2;
+      bird.y = canvas.height / 2;
+      bird.velocity = 0;
+      initPipes();
+      gameStarted = false;
+      updateMessage();
+    }
+
+    // Update the external message container.
+    function updateMessage() {
+      if (!gameStarted) {
+        if (finalScore !== null) {
+          messageContainer.textContent = "Game Over. Your score: " + finalScore + ". Select Image & Click on the Bird to Play";
+        } else {
+          messageContainer.textContent = "Select Image & Click on the Bird to Play";
+        }
+      } else {
+        messageContainer.textContent = "";
+      }
+    }
+
+    // Main game loop.
+    function gameLoop() {
+      update();
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    // Start game when user clicks on the bird (when game is not running).
+    canvas.addEventListener("click", function (e) {
+      const rect = canvas.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      const clickY = e.clientY - rect.top;
+      // Check if game is not started and if click is within bird image bounds.
+      // Bird image is drawn at 68x48 pixels centered at (bird.x, bird.y)
+      if (!gameStarted) {
+        if (
+          clickX >= bird.x - 34 &&
+          clickX <= bird.x + 34 &&
+          clickY >= bird.y - 24 &&
+          clickY <= bird.y + 24
+        ) {
+          if (!birdImg || !birdImg.src) {
+            alert("Please import an image first.");
+            return;
+          }
+          // Start the game.
+          gameStarted = true;
+          finalScore = null;
+          score = 0;
+          updateMessage();
+        }
+      } else {
+        // In-game click triggers jump.
+        bird.velocity = -jumpStrength;
+      }
+    });
+
+    // Keyboard jump controls – active during gameplay.
+    document.addEventListener("keydown", function (e) {
+      if (e.code === "Space") {
+        if (gameStarted) {
+          bird.velocity = -jumpStrength;
+        }
+      }
+    });
+
+    // Select Image button: trigger the hidden file input.
+    document.getElementById("selectImageButton").addEventListener("click", function () {
+      document.getElementById("imageInput").click();
+    });
+
+    // When a file is selected, load it as the bird image.
+    document.getElementById("imageInput").addEventListener("change", function (event) {
+      const file = event.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = function (e) {
+          birdImg = new Image();
+          birdImg.onload = function () {
+            // Optionally, you might want to redraw immediately.
+          };
+          birdImg.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+
+    // Begin the game loop.
+    gameLoop();
+  </script>
+</body>
+</html>
